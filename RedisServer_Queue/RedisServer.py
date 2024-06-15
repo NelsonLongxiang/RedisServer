@@ -19,7 +19,20 @@ if os.path.basename(__file__) in ['run.py', 'main.py', '__main__.py']:
     else:
         sys.path.append(os.path.abspath(__file__))
 
-r = redis.Redis(host='localhost', port=6379, db=0)
+r = redis.Redis
+
+
+def init(rids_boj=None):
+    '''
+    初始化redis
+    :param rids_boj:
+    :return:
+    '''
+    global r
+    if rids_boj:
+        r = rids_boj
+    else:
+        r = r(host='localhost', port=6379, db=0)
 
 
 class RedisQueue:

@@ -2,12 +2,12 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 [project]
-name = "RedisServer"
-version = "0.0.1"
+name = "RedisServer-Queue"
+version = "0.0.3"
 authors = [
-  { name="NelsonLongXiang", email="1169207670@qq.com" },
+    { name = "NelsonLongXiang", email = "1169207670@qq.com" },
 ]
-description = "RedisServer is a simple redis server"
+description = "RedisServer-Queue is a simple redis server"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
