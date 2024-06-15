@@ -18,7 +18,6 @@ pip install --upgrade -i https://pypi.org/simple RedisServer-Queue
 
 [MIT](https://choosealicense.com/licenses/mit/)
 
-```
 ### 作者联系方式
 
 1. 作者邮箱：`1169207670@qq.com`
