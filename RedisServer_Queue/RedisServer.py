@@ -22,15 +22,15 @@ if os.path.basename(__file__) in ['run.py', 'main.py', '__main__.py']:
 r = redis.Redis
 
 
-def init(rids_boj=None):
+def init(redis_obj=None):
     '''
     初始化redis
-    :param rids_boj:
+    :param redis_obj:
     :return:
     '''
     global r
-    if rids_boj:
-        r = rids_boj
+    if redis_obj:
+        r = redis_obj
     else:
         r = r(host='localhost', port=6379, db=0)
 

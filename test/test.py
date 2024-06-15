@@ -28,7 +28,7 @@ r = redis.Redis(host='localhost', port=6379, db=0)
 '''
 r = redis.Redis(host='localhost', port=6379, db=0)
 
-RedisServer.init(rids_boj=r)
+RedisServer.init(redis_obj=r)
 
 
 def hello_world():
