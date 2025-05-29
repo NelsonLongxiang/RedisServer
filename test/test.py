@@ -6,6 +6,7 @@
 # @Software: PyCharm
 
 import os
+import pickle
 import sys
 
 import redis
@@ -18,7 +19,7 @@ if os.path.basename(__file__) in ['run.py', 'main.py', '__main__.py']:
         sys.path.append(os.path.abspath(__file__))
 
 # 导入模块
-from RedisServer_Queue import RedisServer
+from RedisServer_Queue.RedisServer import RedisQueue, RedisMQ
 
 # 初始化Redis服务
 # 默认使用本地Redis服务 6379端口 如果您使用的是远程Redis服务 请修改将实例化后的r对象传入RedisServer.init(r)
@@ -28,15 +29,13 @@ r = redis.Redis(host='localhost', port=6379, db=0)
 '''
 r = redis.Redis(host='localhost', port=6379, db=0)
 
-RedisServer.init(redis_obj=r)
-
 
 def hello_world():
     '''
     get 数据返回类型为bytes类型
     :return:
     '''
-    msg_queue = RedisServer.RedisQueue(topic='msg_queue')
+    msg_queue = RedisQueue(r, topic='msg_queue')
     if msg_queue.qsize() == 0:
         msg_queue.put('hello world')
 
@@ -48,21 +47,24 @@ def ack_test():
     ack_test
     :return:
     '''
-    msg_queue = RedisServer.RedisQueue(topic='msg_queue')
-    print("重置数据,初始化时运行,返回值为重置数据量！", msg_queue.re_data())
-    msg_queue.put('hello world')
+    msg_queue = RedisQueue(r, topic='msg_queue')
+    print("重置数据,初始化时运行,返回值为重置数据量！", msg_queue.re_data(True))
+   #  msg_queue.put(['hello world',])
 
-    class ThreadAck(RedisServer.RedisQueue, RedisServer.RedisMQ):
+    print("当前队列长度：", msg_queue.qsize())
+    print("result:", msg_queue.get())
+
+    class ThreadAck(RedisQueue, RedisMQ):
         def __init__(self, topic):
-            RedisServer.RedisQueue.__init__(self, topic)
-            RedisServer.RedisMQ.__init__(self)
+            RedisQueue.__init__(self, r, topic)
+            RedisMQ.__init__(self)
             self.ch = None
 
         def run(self):
             '''count 默认为-1；当count=1时，表示只获取一个数据，当count>1时，表示获取count个数据
                 根据需要自行修改
             '''
-            self.start_receive(topic=self.topic, callback=self.callback)
+            self.start_receive(self.r, topic=self.topic, callback=self.callback)
 
         def callback(self, ch, body):
             self.ch = ch
@@ -77,8 +79,8 @@ def ack_test():
                 '''
                 self.ch.basic_ack()
 
-    thread_ack = ThreadAck(topic='msg_queue')
-    thread_ack.run()
+    # thread_ack = ThreadAck(topic='msg_queue')
+    # thread_ack.run()
 
 
 if __name__ == '__main__':

@@ -4,125 +4,130 @@
 # @Author : 龙翔
 # @File    :RedisServer.py
 # @Software: PyCharm
-import json
-import os
-import sys
+import pickle
 import time
+import typing
 import uuid
+from typing import Callable
 
 import redis
-
-# 将当前文件夹添加到环境变量
-if os.path.basename(__file__) in ['run.py', 'main.py', '__main__.py']:
-    if '.py' in __file__:
-        sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-    else:
-        sys.path.append(os.path.abspath(__file__))
-
-r = redis.Redis
-
-
-def init(redis_obj=None):
-    '''
-    初始化redis
-    :param redis_obj:
-    :return:
-    '''
-    global r
-    if redis_obj:
-        r = redis_obj
-    else:
-        r = r(host='localhost', port=6379, db=0)
+from loguru import logger
 
 
 class RedisQueue:
-    def __init__(self, topic=None):
+    def __init__(self, r: redis.Redis, topic: str, ack_timeout=600):
         self.topic = topic
+        self.r = r
+        self.ack_timeout = ack_timeout
 
     def get(self):
-        # 弹出指定数量的数据
-        data = r.rpop(self.topic)
-        return data if data else None
+        try:
+            data = self.r.rpop(self.topic)
+            if data:
+                return RedisCh(self.r, self.topic, data)
+            return None
+        except redis.RedisError as e:
+            logger.error(f"Redis error in get: {e}")
+            return None
 
-    def put(self, value):
-        if isinstance(value, list):
-            r.lpush(self.topic, *value)
-        else:
-            r.lpush(self.topic, *[value])
+    def get_mul(self, num):
+        return [self.get() for _ in range(num) if self.get() is not None]
+
+    def put(self, value:typing.Any):
+        try:
+            if not isinstance(value, list):
+                value = [value]
+            value = [pickle.dumps((time.time(), v)) for v in value]
+            self.r.lpush(self.topic, *value)
+        except redis.RedisError as e:
+            logger.error(f"Redis error in put: {e}")
 
     def clear(self):
-        r.delete(self.topic)
+        try:
+            self.r.delete(self.topic)
+        except redis.RedisError as e:
+            logger.error(f"Redis error in clear: {e}")
 
     def size(self):
-        return r.llen(self.topic)
+        try:
+            return self.r.llen(self.topic)
+        except redis.RedisError as e:
+            logger.error(f"Redis error in size: {e}")
+            return 0
 
     def qsize(self):
         return self.size()
 
-    def get_mul(self, num):
-        return [self.get() for _ in range(num)]
+    def re_data(self,init=False):
+        # 使用SCAN替代KEYS以提高性能
+        cursor = 0
+        ack_keys = []
+        while True:
+            cursor, keys = self.r.scan(cursor, match=f"queue_ack/{self.topic}/*")
+            ack_keys.extend(keys)
+            if cursor == 0:
+                break
 
-    def re_data(self):
-        ch_keys = r.keys(f"ack_{self.topic}_*")
-        for key in ch_keys:
-            data = r.get(key)
+        for key in ack_keys:
+            data = self.r.get(key)
             if data:
-                q = RedisQueue(self.topic)
-                t, _data = json.loads(data)
-                r.delete(key)
-                q.put(_data)
-        return len(ch_keys)
+                t, _data = pickle.loads(data)
+                if time.time() - t > self.ack_timeout or init:
+                    self.r.delete(key)
+                    self.put(_data)
 
     def get_all(self):
-        return r.lrange(self.topic, 0, -1)
+        try:
+            return self.r.lrange(self.topic, 0, -1)
+        except redis.RedisError as e:
+            logger.error(f"Redis error in get_all: {e}")
+            return []
 
 
 class RedisMQ:
     def __init__(self):
         self.switch = 1
 
-    def start_receive(self, topic, callback, count=-1):
+    def start_receive(self, r: redis.Redis, topic: str, callback: Callable, count=-1):
+        queue_obj = RedisQueue(r, topic)
+        queue_obj.re_data()
+
         while self.switch:
-            data = r.rpop(topic)
-            if data:
-                ch = RedisCh(topic, data)
-                callback(ch, data)
-                if count == 1:
-                    return
-                continue
-            ch_keys = r.keys(f"ack_{topic}_*")
-            for key in ch_keys:
-                data = r.get(key)
-                if data:
-                    q = RedisQueue(topic)
-                    t, _data = json.loads(data)
-                    if time.time() - t > 10 * 60:
-                        r.delete(key)
-                        q.put(_data)
-                        del q
-            if len(ch_keys) == 0:
-                time.sleep(10)
-            time.sleep(1)
+            try:
+                if queue_obj.qsize() == 0:
+                    queue_obj.re_data()
+                    time.sleep(5)
+                    continue
+
+                ch = queue_obj.get()
+                if ch:
+                    callback(ch, ch.data)
+                    if count == 1:
+                        return
+                    continue
+                queue_obj.re_data()
+
+            except redis.RedisError as e:
+                logger.error(f"Redis error in start_receive: {e}")
+                time.sleep(5)
 
     def stop(self):
         self.switch = 0
 
 
 class RedisCh:
-    def __init__(self, topic, data):
+    def __init__(self, r: redis.Redis, topic: str, data: bytes):
+        self.r = r
         self.topic = topic
         self.id = uuid.uuid4()
-        r.set(f"ack_{topic}_{self.id}", json.dumps([time.time(), data.decode()]))
+        self.time, self.data = pickle.loads(data)
+        try:
+            r.set(f"queue_ack/{topic}/{self.id}", data, ex=60 * 60 * 24 * 7)
+        except redis.RedisError as e:
+            logger.error(f"Redis error in RedisCh init: {e}")
 
     def basic_ack(self):
-        r.delete(f"ack_{self.topic}_{self.id}")
-
-
-if __name__ == '__main__':
-    r.delete('test')
-    # a = RedisQueue("test")
-    # a.put(1)
-    # print(type(a.get()))
-    # r.set('test', 1)
-    # print(r.get('test'), type(r.get('test').decode('utf8')))
-    # RedisQueue.put(value=1, topic="test")
+        try:
+            self.r.delete(f"ack_{self.topic}_{self.id}")
+        except redis.RedisError as e:
+            logger.error(f"Redis error in basic_ack: {e}")
