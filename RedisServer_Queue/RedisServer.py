@@ -90,7 +90,7 @@ class RedisMQ:
 
     def start_receive(self, r: redis.Redis, topic: str, callback: Callable, count=-1):
         queue_obj = RedisQueue(r, topic)
-        queue_obj.re_data()
+        queue_obj.re_data(True)
 
         while self.switch:
             try:
@@ -128,6 +128,6 @@ class RedisCh:
 
     def basic_ack(self):
         try:
-            self.r.delete(f"ack_{self.topic}_{self.id}")
+            self.r.delete(f"queue_ack/{self.topic}/{self.id}")
         except redis.RedisError as e:
             logger.error(f"Redis error in basic_ack: {e}")
